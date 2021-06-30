@@ -1,47 +1,43 @@
-#!/usr/bin/env bash
 
-# Non-posix compliant tools used in this script:
-# gnu sed (gsed)
-# gnu wc (gwc)
-# grep
-# tac
+""" PULL GAUSSIAN QUOTE """
 
-# abort on nonzero exit status
-set -o errexit 
-# abort on unbound variable
-set -o nounset
-# dont hide errors within pipes
-set -o pipefail
+for outfile in $(find . \( ! -regex '.*/\..*' \) -type f -name "*.out"); do
+	if grep -q "Normal termination of Gaussian" "${outfile}"; then
+		echo "${outfile}" Terminated normally.
+		quote=$(gsed -n "/\\\@/,/Job cpu time/p" "${outfile}")
+		quote="${quote%Job*}"
+		quote="${quote##*\@}"
+		echo "${quote}" >> ~/gaussianquotes.txt
+		echo
+	else
+		echo "${outfile}" Did NOT terminate normally.
+		echo
+	fi
+done
 
-# Warns user that script is only written to handle atoms up to atomic number 20
+""" PULL OPTIMIZED ENERGY """
+
+if ! grep -q "Normal termination of Gaussian 09 at" "${f}"; then
+	echo WARNING: "${f##*/}" did not terminate normally!
+	echo Exiting script.
+	echo
+	exit
+else
+	a=$(gsed -n "/GINC/,/\@/p" ${f})
+	a=$(echo ${a//[$'\t\r\n ']})
+	a=${a#*HF=}
+	a=${a%\\RMSD*}
+	echo The energy of your optimized structure is: "${a}" Hartrees
+	echo
+fi
+
+""" PULL STANDARD ORIENTATION """
+
 echo
 echo WARNING: This script will not correctly write a new .xyz file if your molecule contains atoms larger than Calcium.
 echo 'Enter (y) to continue, or (n) to exit script:'
 read q
 
-if ! [ ${q} = 'y' ]; then
-	echo
-	echo Exiting script.
-	echo
-	exit 0
-fi
-
-unset q # resets variable so it can be used again later
-
-echo
-echo Enter gaussian.out filename:
-read -e f
-echo
-
-# Exits script if file doesn't exist
-if [ ! -f ${f} ]; then
-	echo "${f}" does not exist.
-	echo Exiting script.
-	echo
-	exit 0
-fi
-
-# Exits script if Gaussian didn't terminate normally
 if ! grep -q "Normal termination of Gaussian 09 at" "${f}"; then
 	echo "${f}" did not terminate normally.
 	echo Do you still want to try to pull the last set of coordinates from the .out file?
@@ -57,8 +53,6 @@ if ! grep -q "Normal termination of Gaussian 09 at" "${f}"; then
 	fi
 fi
 
-unset q
-
 # Pulls the energy of the optimized structure to be reported at the end of the script
 if ! [ ${opt} = 'no' ]; then
 	a=$(gsed -n "/GINC/,/\@/p" ${f})
@@ -66,25 +60,6 @@ if ! [ ${opt} = 'no' ]; then
 	a=${a#*HF=}
 	a=${a%\\RMSD*}
 fi
-
-# Filename becomes everything after the last "/" but before the ".out"
-if ! [ ${opt} = 'no' ]; then
-	f2="${f##*/}"
-	f2="${f2%.*}"
-elif [ ${opt} = 'no' ]; then
-	f2="${f##*/}"
-	f2="${f2%_opt*}"
-	f2="${f2}_PARTIAL_OPT"
-fi
-
-if [ -f ./"${f2}".xyz ]; then
-	echo Previously generated coordinate file detected: ./"${f2}".xyz
-	echo Exiting script to prevent file overwrite.
-	echo
-	exit 0
-fi
-
-mkdir ./tmp/
 
 # Optimized coordinate extraction
 # Combining the following three commands trips the non zero exit error, so it is necessary to split the tac, gsed, and tac commands into three separate lines
@@ -121,32 +96,4 @@ gsed -i '1,$s/^4\ /Be/' ./tmp/tmp4.txt
 gsed -i '1,$s/^3\ /Li/' ./tmp/tmp4.txt
 gsed -i '1,$s/^2\ /He/' ./tmp/tmp4.txt
 gsed -i '1,$s/^1/H/' ./tmp/tmp4.txt
-
-# This fixes the spacing between the columns in the xyz file
-# It came from: https://unix.stackexchange.com/questions/398483/decimal-centered-columns-unix  
-awk '{ printf "%-6s ", $1; for (i=2; i<=NF; i++) printf "%15.6f ", $i; printf "\n"; }' ./tmp/tmp4.txt >> ./tmp/tmp5.txt
-
-# gsed commands written with "@" as the delimiter
-gsed -i "1s@^@${f2}.xyz\n@" ./tmp/tmp5.txt
-gsed -i "1s@^@$(($(gwc -l < ./tmp/tmp5.txt)-1))\n@" ./tmp/tmp5.txt
-
-mv ./tmp/tmp5.txt ./${f2}.xyz
-rm -r ./tmp/
-
-if [ ${opt} = 'yes' ]; then
-	echo The energy of your optimized structure is: "${a}" Hartrees
-	echo
-fi
-
-# if [ ${opt} = 'no' ]; then
-# 	echo Would you like to prepare a new set of input files using the partial optimization?
-# 	echo 'Enter (y) or (n):'
-# 	read q
-# 	echo
-# 	if [ ${q} = 'y' ]; then
-# 		mkdir DIRECTORY
-# 		mv *.err *.inp *.out *.pbs *.chk DIRECTORY
-# 		UNFINISHED
-# 	fi
-# fi
 
